@@ -1,0 +1,97 @@
+from keras.layers import Input,Lambda
+from keras.layers.core import Dense
+from keras.models import Model
+
+from keras.layers import LSTM,core,concatenate,Bidirectional,Add,GlobalAveragePooling1D
+from keras.models import Model,Sequential
+#from attention import add_attention1, add_attention2, add_attention3, add_attention4
+from keras import backend as k
+from self_attention import Self_Attention
+
+from .networks_utils import (residual_dense_block,
+                             dense_layer)
+
+
+def resnet_generator_FC_bigger(input_shape=(56,), use_dropout=False, use_batch_norm=True,
+                               use_leaky_relu=False):
+    inputs = Input(shape=input_shape)
+    embedding = inputs
+
+    embedding = dense_layer(embedding, units=56, use_batch_norm=use_batch_norm, use_leaky_relu=use_leaky_relu)
+
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+
+    embedding = dense_layer(embedding, units=56, use_batch_norm=use_batch_norm, use_leaky_relu=use_leaky_relu)
+
+    outputs = Dense(units=input_shape[0], activation=None)(embedding)
+
+    return Model(inputs=inputs, outputs=outputs), inputs, outputs
+
+
+def resnet_generator_FC_smaller(input_shape=(56,), use_dropout=False, use_batch_norm=True,
+                                use_leaky_relu=False):
+    inputs = Input(shape=input_shape)
+    embedding = inputs
+
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+    embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+                                     use_leaky_relu=use_leaky_relu)
+
+    outputs = Dense(units=input_shape[0], activation=None)(embedding)
+
+    return Model(inputs=inputs, outputs=outputs), inputs, outputs
+
+
+def resnet_generator_FC_smallest(input_shape=(56,), use_dropout=False, use_batch_norm=True,
+                                 use_leaky_relu=False):
+    inputs = Input(shape=input_shape)
+    embedding0 = inputs
+
+    #embedding = residual_dense_block(embedding0, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+    #                                 use_leaky_relu=use_leaky_relu)
+    #attention_probs = Dense(56, activation='softmax', )(embedding)   #[b_size,maxlen,64]
+    #attention_mul = Lambda(lambda x:x[0]*x[1])([attention_probs,embedding])
+    #embedding = residual_dense_block(embedding, units=56, use_dropout=use_dropout, use_batch_norm=use_batch_norm,
+    #                                use_leaky_relu=use_leaky_relu)
+    #embedding = Dense(units=input_shape[0],activation=None)(embedding)
+    embedding = core.Lambda(lambda embedding: k.expand_dims(embedding,axis=-1))(embedding0)
+    embedding = Bidirectional(LSTM(units=56, return_sequences=True,))(embedding)
+    attention_probs = Dense(112, activation='softmax', )(embedding)   #[b_size,maxlen,64]
+    embedding = Lambda(lambda x:x[0]*x[1])([attention_probs,embedding])
+    #embedding = Bidirectional(LSTM(units=28, return_sequences=True, ))(attention_mul)
+    #attention_probs = Dense(56, activation='softmax', )(embedding)   #[b_size,maxlen,64]
+    #attention_mul = Lambda(lambda x:x[0]*x[1])([attention_probs,embedding])
+    #embedding = Self_Attention(56)(embedding)
+    embedding = GlobalAveragePooling1D()(embedding)
+    #embedding = core.Lambda(lambda embedding: k.expand_dims(embedding,axis=-1))(embedding)
+    #embedding = LSTM(units=56)(embedding)
+    #
+    embedding = concatenate([embedding0,embedding],axis=-1)
+
+    outputs = Dense(units=input_shape[0], activation=None)(embedding)
+
+    return Model(inputs=inputs, outputs=outputs), inputs, outputs
+
+
+def resnet_generator(network_type='FC_smaller', **args):
+    assert network_type in {'FC_smaller', 'FC_smallest', 'FC_bigger'}, "NOT IMPLEMENTED FOR THIS 'network_type'!!!"
+
+    generators = {
+        "FC_smaller": resnet_generator_FC_smaller,
+        "FC_smallest": resnet_generator_FC_smallest,
+        "FC_bigger": resnet_generator_FC_bigger,
+    }
+
+    return generators[network_type](**args)
